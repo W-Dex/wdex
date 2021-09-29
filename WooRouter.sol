@@ -1,23 +1,60 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-
-// File @openzeppelin/contracts/utils/Context.sol@v3.4.1
-
-
-
-pragma solidity >=0.6.0 <0.8.0;
-
-
-// File contracts/WooRouter.sol
-
-pragma solidity >=0.7.0 <0.8.0;
+// SPDX-License-Identifier: MIT
+pragma solidity =0.6.12;
 pragma experimental ABIEncoderV2;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+*/
+
+import "./interfaces/IWooPP.sol";
+import "./interfaces/IWETH.sol";
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 
 contract WooRouter is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
-    address constant _ETH_ADDRESS_ = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;  // erc20 for bnb
-    address constant _WETH_ADDRESS_ = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c; // WBNB
+    // Erc20 placeholder address for native tokens (e.g. eth, bnb, matic, etc)
+    address constant _ETH_ADDRESS_ = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
+    // Wrapper for native tokens (e.g. eth, bnb, matic, etc)
+    address constant _WETH_ADDRESS_ = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
     address public immutable quoteToken;
     mapping (address => bool) public isWhitelisted;
@@ -41,14 +78,16 @@ contract WooRouter is Ownable, ReentrancyGuard {
 
     receive() external payable {}
 
-    constructor (address _quoteToken, address _pool) {
+    constructor (address _quoteToken, address _pool) public {
         require(_quoteToken != address(0), "INVALID_QUOTE");
+        require(address(_pool) != address(0), "Pool address cannot be 0");
         quoteToken = _quoteToken;
         pool = IWooPP(_pool);
         emit PoolChanged(_pool);
     }
 
     function setPool(address _pool) onlyOwner external {
+        require(address(_pool) != address(0), "Pool address cannot be 0");
         pool = IWooPP(_pool);
         emit PoolChanged(_pool);
     }
@@ -144,14 +183,14 @@ contract WooRouter is Ownable, ReentrancyGuard {
     /* Fallback swap function */
 
     function externalSwap(
-        address approveTarget, // whitelist this field
-        address swapTarget, // whitelist this field
+        address approveTarget,
+        address swapTarget,
         address fromToken,
         address toToken,
         uint256 fromAmount,
         address payable to,
         bytes calldata data
-    ) external payable preventReentrant {
+    ) external payable nonReentrant {
         uint256 preBalance = _generalBalanceOf(toToken, address(this));
         internalFallbackSwap(approveTarget, swapTarget, fromToken, fromAmount, data);
         uint256 postBalance = _generalBalanceOf(toToken, address(this));
@@ -172,8 +211,8 @@ contract WooRouter is Ownable, ReentrancyGuard {
     }
 
     function internalFallbackSwap(
-        address approveTarget, // whitelist this field
-        address swapTarget, // whitelist this field
+        address approveTarget,
+        address swapTarget,
         address fromToken,
         uint256 fromAmount,
         bytes calldata data
